@@ -1,0 +1,8 @@
+{
+  "id": "image-to-smms",
+  "name": "Image to SM.MS",
+  "version": "1.0.0",
+  "description": "Upload Obsidian Images to SM.MS using the provided API.",
+  "author": "Redwinam",
+  "isDesktopOnly": false
+}
