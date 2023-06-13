@@ -14,6 +14,7 @@
   "dependencies": {
     "fs": "^0.0.1-security",
     "obsidian": "^1.2.8",
+    "obsidian-community-lib": "^2.0.2",
     "tslib": "^2.5.3"
   },
   "devDependencies": {

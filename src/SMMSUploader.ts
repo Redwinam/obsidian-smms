@@ -1,7 +1,11 @@
 import { App, Notice, requestUrl, RequestUrlParam, getBlobArrayBuffer } from "obsidian";
 import { PluginSettings } from "./main";
+import path from "path";
 
 export interface SMMSResponse {
+  message: any;
+  images: any;
+  code: string;
   success: boolean;
   msg: string;
   data: {
@@ -18,14 +22,13 @@ export class SMMSUploader {
     this.settings = settings;
   }
 
-  async uploadFile(filePath: string): Promise<any> {
-    filePath = decodeURIComponent(filePath);
-
+  async uploadFile(filePath: string): Promise<{success: boolean; result?: string; msg?: string}> {
     // Generate boundary string
     const boundaryString = "----ObsidianUploader" + Array(32).join((Math.random().toString(36) + '00000000000000000').slice(2, 18)).slice(0, 32);
     
     // Construct the form data payload as a string
-    const preString = `--${boundaryString}\r\nContent-Disposition: form-data; name="smfile"; filename="blob"\r\nContent-Type: "application/octet-stream"\r\n\r\n`;
+    const filename = path.basename(filePath);
+    const preString = `--${boundaryString}\r\nContent-Disposition: form-data; name="smfile"; filename="${filename}"\r\nContent-Type: "application/octet-stream"\r\n\r\n`;
     const postString = `\r\n--${boundaryString}--`;
 
     // Get file data as a Blob
@@ -49,17 +52,18 @@ export class SMMSUploader {
     // Make the request and handle the response
     try {
       const response = await requestUrl(options);
-      const data: SMMSResponse = await response.json();
+      const data: SMMSResponse = await response.json;
     
-      if (data.success) {
+      if (data.success || data.code === 'image_repeated') {
+        const url = data.success ? data.data.url : data.images;
         return {
           success: true,
-          result: [data.data.url]
+          result: url
         };
       } else {
         return {
           success: false,
-          msg: data.msg
+          msg: data.message
         };
       }
     } catch (error: any) {

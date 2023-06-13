@@ -1,16 +1,19 @@
 import { Plugin, PluginSettingTab, Setting, App, TFile, Notice, Menu, MarkdownView, TAbstractFile } from 'obsidian';
 import { SMMSUploader } from './SMMSUploader';
+import { getAvailablePathForAttachments } from "obsidian-community-lib"
 
 export interface PluginSettings {
   SMMS_API_BASE_URL: string;
   smmsApiToken: string;
   smmsApiOption: string;
+  shouldDeleteAfterUpload: boolean;
 }
 
 const DEFAULT_SETTINGS: PluginSettings = {
   SMMS_API_BASE_URL: 'https://sm.ms',
   smmsApiToken: '',
   smmsApiOption: 'sm.ms',
+  shouldDeleteAfterUpload: false,
 };
 
 export default class ImageUploadPlugin extends Plugin {
@@ -26,22 +29,38 @@ export default class ImageUploadPlugin extends Plugin {
       id: 'upload-image',
       name: 'Upload Image',
       checkCallback: (checking: boolean) => {
-          let markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
-          if (markdownView) {
-              let editor = markdownView.editor;
-              let doc = editor.getDoc();
-              let cursor = doc.getCursor();
-              let line = doc.getLine(cursor.line);
-              let match = line.match(/!\[.*\]\((.*)\)/);
-              if (match) {
-                  if (!checking) {
-                      this.uploadImage(match[1]).catch(console.error);
+        let markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
+        if (markdownView) {
+          let editor = markdownView.editor;
+          let doc = editor.getDoc();
+          let cursor = doc.getCursor();
+          let line = doc.getLine(cursor.line);
+          let match = line.match(/!\[.*\]\((.*)\)/);
+          if (match) {
+            if (!checking) {
+              let filename = match[1];
+              let filenameWithoutExtension = filename.substring(0, filename.lastIndexOf('.'));
+              let format = filename.substring(filename.lastIndexOf('.') + 1);
+              this.getImagePath(filenameWithoutExtension, format, markdownView.file).then((absolutePath) => {
+
+                this.uploadImage(absolutePath).then((res:any) => {
+                  if (res.success && match) {
+                    const newUrl = res.result;
+                    const newLine = line.replace(filename, newUrl);
+                    doc.replaceRange(newLine, { line: cursor.line, ch: 0 }, { line: cursor.line, ch: line.length });
+                  } else {
+                    new Notice(res.msg);
                   }
-                  return true;
-              }
+                }).catch(console.error);
+              });
+                
+            }
+            return true;
           }
-          return false;
         }
+        return false;
+      }
+      
     });
   
     this.registerEvent(this.app.workspace.on('file-menu', (menu: Menu, file: TAbstractFile) => {
@@ -58,13 +77,25 @@ export default class ImageUploadPlugin extends Plugin {
   }
 
   async uploadImage(path: string) {
+    path = decodeURIComponent(path);
     const result = await this.uploader.uploadFile(path);
     if (result.success) {
       new Notice('Image uploaded successfully');
+      if (this.settings.shouldDeleteAfterUpload) {
+        await this.app.vault.adapter.remove(path);
+      }
     } else {
       new Notice(`Failed to upload image: ${result.msg}`);
     }
+    return result;
   }
+
+  // getAvailablePathForAttachments(match[1], format, markdownView.file)
+  async getImagePath (filename: string, format: string, file: TFile) {
+    const absolutePath = getAvailablePathForAttachments(filename, format, file);
+    return absolutePath;
+  }
+    
 
   async loadSettings() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
@@ -114,6 +145,18 @@ class ImageUploadPluginSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.smmsApiToken)
           .onChange(async value => {
             this.plugin.settings.smmsApiToken = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Delete file after upload")
+      .setDesc("If enabled, the local file will be deleted after it's successfully uploaded.")
+      .addToggle(toggle =>
+        toggle
+          .setValue(this.plugin.settings.shouldDeleteAfterUpload)
+          .onChange(async value => {
+            this.plugin.settings.shouldDeleteAfterUpload = value;
             await this.plugin.saveSettings();
           })
       );
