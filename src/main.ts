@@ -1,4 +1,4 @@
-import { Plugin, PluginSettingTab, Setting, App, TFile, Notice, Menu, MarkdownView, TAbstractFile } from 'obsidian';
+import { Plugin, PluginSettingTab, Setting, App, Editor, TFile, Notice, Menu, MarkdownView, TAbstractFile } from 'obsidian';
 import { SMMSUploader } from './SMMSUploader';
 import { getAvailablePathForAttachments } from "obsidian-community-lib"
 
@@ -33,25 +33,35 @@ export default class ImageUploadPlugin extends Plugin {
         if (markdownView) {
           let editor = markdownView.editor;
           let doc = editor.getDoc();
+          let line = editor.getSelection();
           let cursor = doc.getCursor();
-          let line = doc.getLine(cursor.line);
-          let match = line.match(/!\[.*\]\((.*)\)/);
-          if (match) {
-            if (!checking) {
-              let filename = match[1];
-              let filenameWithoutExtension = filename.substring(0, filename.lastIndexOf('.'));
-              let format = filename.substring(filename.lastIndexOf('.') + 1);
-              this.getImagePath(filenameWithoutExtension, format, markdownView.file).then((absolutePath) => {
+          let matches;
+          if (!line) {
+            line = doc.getLine(cursor.line);
+          }
+          matches = line.matchAll(/!\[.*\]\((.*)\)/g);
+          let matchArray = Array.from(matches);
 
-                this.uploadImage(absolutePath).then((res:any) => {
-                  if (res.success && match) {
-                    const newUrl = res.result;
-                    const newLine = line.replace(filename, newUrl);
-                    doc.replaceRange(newLine, { line: cursor.line, ch: 0 }, { line: cursor.line, ch: line.length });
-                  } else {
-                    new Notice(res.msg);
-                  }
-                }).catch(console.error);
+          if (matchArray.length > 0) {
+            if (!checking) {
+              matchArray.forEach((match) => {
+                if (markdownView && markdownView.file) {
+                  let filename = match[1];
+                  let filenameWithoutExtension = filename.substring(0, filename.lastIndexOf('.'));
+                  let format = filename.substring(filename.lastIndexOf('.') + 1);
+                  this.getImagePath(filenameWithoutExtension, format, markdownView.file).then((absolutePath) => {
+
+                    this.uploadImage(absolutePath).then((res:any) => {
+                      if (res.success && match) {
+                        const newUrl = res.result;
+                        const newLine = line.replace(filename, newUrl);
+                        doc.replaceRange(newLine, { line: cursor.line, ch: 0 }, { line: cursor.line, ch: line.length });
+                      } else {
+                        new Notice(res.msg);
+                      }
+                    }).catch(console.error);
+                  });
+                }
               });
                 
             }
@@ -63,7 +73,8 @@ export default class ImageUploadPlugin extends Plugin {
       
     });
   
-    this.registerEvent(this.app.workspace.on('file-menu', (menu: Menu, file: TAbstractFile) => {
+    this.registerEvent(
+      this.app.workspace.on('file-menu', (menu: Menu, file: TAbstractFile) => {
       if (file instanceof TFile && (file.extension === 'png' || file.extension === 'jpg')) {
         menu.addItem((item) => {
           item.setTitle('Upload Image')
@@ -95,7 +106,26 @@ export default class ImageUploadPlugin extends Plugin {
     const absolutePath = getAvailablePathForAttachments(filename, format, file);
     return absolutePath;
   }
-    
+
+  // 未查询到对应 Obsidian API，暂时不支持粘贴上传
+  async handlePasteEvent(event: ClipboardEvent, editor: Editor) {
+    if (event.clipboardData && event.clipboardData.files.length > 0) {
+      const file = event.clipboardData.files[0];
+      if (!file.type.startsWith("image/")) {
+        return;
+      }
+  
+      const result = await this.uploader.uploadFileFromClipboard(file);
+      if (result.success) {
+        const imageURL = result.result;
+        const currentCursorPosition = editor.getCursor();
+        editor.replaceRange(`![](${imageURL})`, {line: currentCursorPosition.line, ch: currentCursorPosition.ch});
+      } else {
+        new Notice(`Failed to upload image: ${result.msg}`);
+      }
+      event.preventDefault();
+    }
+  }
 
   async loadSettings() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
